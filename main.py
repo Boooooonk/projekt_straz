@@ -1,208 +1,427 @@
 from tkinter import *
-
+from tkinter import ttk
 import tkintermapview
 
-users: list = []
+# --- Nowe klasy danych ---
+class JednostkaStrazy:
+    def __init__(self, nazwa, lokalizacja):
+        self.nazwa = nazwa
+        self.lokalizacja = lokalizacja
+        self.pracownicy = []  # lista obiektów Pracownik
+        self.pozary = []      # lista obiektów Pozar
+        self.coordinates = get_coordinates(lokalizacja)
+        self.marker = None
 
+class Pracownik:
+    def __init__(self, imie, nazwisko, lokalizacja, jednostka=None):
+        self.imie = imie
+        self.nazwisko = nazwisko
+        self.lokalizacja = lokalizacja
+        self.jednostka = jednostka  # referencja do JednostkaStrazy
+        self.coordinates = get_coordinates(lokalizacja)
+        self.marker = None
 
-class User:
-    def __init__(self, name, surname, location, posts):
-        self.name = name
-        self.surname = surname
-        self.location = location
-        self.posts = posts
-        self.coordinates = self.get_coordinates()
-        self.marker = map_widget.set_marker(self.coordinates[0], self.coordinates[1],
-                                            text=f'{self.name} {self.surname}')
+class Pozar:
+    def __init__(self, lokalizacja, opis, jednostka=None):
+        self.lokalizacja = lokalizacja
+        self.opis = opis
+        self.jednostka = jednostka  # referencja do JednostkaStrazy
+        self.coordinates = get_coordinates(lokalizacja)
+        self.marker = None
 
-    def get_coordinates(self) -> list:
-        import requests
-        from bs4 import BeautifulSoup
-        adres_url: str = f'https://pl.wikipedia.org/wiki/{self.location}'
-        response_html = BeautifulSoup(requests.get(adres_url).text, 'html.parser')
-        return [
-            float(response_html.select('.latitude')[1].text.replace(',', '.')),
-            float(response_html.select('.longitude')[1].text.replace(',', '.')),
-        ]
+# --- Listy główne ---
+jednostki_strazy = []  # lista JednostkaStrazy
+pracownicy = []        # lista Pracownik
+pozary = []            # lista Pozar
 
+# --- Funkcja do pobierania współrzędnych ---
+def get_coordinates(location):
+    import requests
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        'q': location,
+        'format': 'json',
+        'limit': 1,
+        'accept-language': 'pl'
+    }
+    headers = {'User-Agent': 'Mozilla/5.0 (projekt_straz)'}
+    response = requests.get(url, params=params, headers=headers)
+    data = response.json()
+    if data:
+        return [float(data[0]['lat']), float(data[0]['lon'])]
+    else:
+        return [52.23, 21.00]  # domyślne współrzędne (Warszawa) jeśli nie znaleziono
 
-def add_user() -> None:
-    name = entry_imie.get()
-    surname = entry_nazwisko.get()
-    location = entry_miejscowosc.get()
-    posts = entry_posts.get()
-
-    user = User(name=name, surname=surname, location=location, posts=posts)
-    users.append(user)
-    print(users)
-
-    entry_imie.delete(0, END)
-    entry_nazwisko.delete(0, END)
-    entry_posts.delete(0, END)
-    entry_miejscowosc.delete(0, END)
-
-    entry_imie.focus()
-    show_users()
-
-
-def show_users():
-    listbox_lista_obiektow.delete(0, END)
-    for idx, user in enumerate(users):
-        listbox_lista_obiektow.insert(idx, f'{idx + 1}. {user.name} {user.surname}')
-
-
-def remove_user():
-    i = listbox_lista_obiektow.index(ACTIVE)
-    print(i)
-    users[i].marker.delete()
-    users.pop(i)
-    show_users()
-
-
-def edit_user():
-    i = listbox_lista_obiektow.index(ACTIVE)
-    name = users[i].name
-    surname = users[i].surname
-    location = users[i].location
-    posts = users[i].posts
-
-    entry_imie.insert(0, name)
-    entry_nazwisko.insert(0, surname)
-    entry_miejscowosc.insert(0, location)
-    entry_posts.insert(0, posts)
-
-    buttom_dodaj_obiekt.config(text='Zapisz', command=lambda: update_user(i))
-
-
-def update_user(i):
-    name = entry_imie.get()
-    surname = entry_nazwisko.get()
-    location = entry_miejscowosc.get()
-    posts = entry_posts.get()
-
-    users[i].name = name
-    users[i].surname = surname
-    users[i].location = location
-    users[i].posts = posts
-
-    users[i].coordinates = users[i].get_coordinates()
-    users[i].marker.delete()
-    users[i].marker = map_widget.set_marker(users[i].coordinates[0], users[i].coordinates[1],
-                                            text=f'{users[i].name} {users[i].surname}')
-
-    show_users()
-    buttom_dodaj_obiekt.config(text='Dodaj', command=add_user)
-
-    entry_imie.delete(0, END)
-    entry_nazwisko.delete(0, END)
-    entry_posts.delete(0, END)
-    entry_miejscowosc.delete(0, END)
-
-    entry_imie.focus()
-
-
-def show_user_details():
-    i = listbox_lista_obiektow.index(ACTIVE)
-    label_szczegoly_obiektu_name_wartosc.config(text=users[i].name)
-    label_szczegoly_obiektu_surname_wartosc.config(text=users[i].surname)
-    label_szczegoly_obiektu_miejscowosc_wartosc.config(text=users[i].location)
-    label_szczegoly_obiektu_posts_wartosc.config(text=users[i].posts)
-
-    map_widget.set_zoom(15)
-    map_widget.set_position(users[i].coordinates[0], users[i].coordinates[1])
-
-
+# --- GUI ---
 root = Tk()
-root.geometry("1200x700")
-root.title('mapbook_kkk')
+root.title('System zarządzania strażą pożarną')
+root.geometry("1400x800")
+root.minsize(900, 600)
 
-ramka_lista_obiektow = Frame(root)
-ramka_formularz = Frame(root)
-ramka_szczegoly_obiektow = Frame(root)
-ramka_mapa = Frame(root)
+# Zakładki
+notebook = ttk.Notebook(root)
+notebook.pack(fill=BOTH, expand=True)
 
-ramka_lista_obiektow.grid(row=0, column=0)
-ramka_formularz.grid(row=0, column=1)
-ramka_szczegoly_obiektow.grid(row=1, column=0, columnspan=2)
-ramka_mapa.grid(row=2, column=0, columnspan=2)
+# --- Zakładka Jednostki ---
+frame_jednostki = Frame(notebook)
+notebook.add(frame_jednostki, text='Jednostki')
 
-# ramka_lista_obiektow
-label_lista_obiektow = Label(ramka_lista_obiektow, text='Lista użytkowników:')
-label_lista_obiektow.grid(row=0, column=0)
+frame_form_jednostka = Frame(frame_jednostki)
+frame_form_jednostka.pack(fill=X, padx=5, pady=5)
+Label(frame_form_jednostka, text='Nazwa:').pack(side=LEFT)
+entry_nazwa_jednostki = Entry(frame_form_jednostka, width=12)
+entry_nazwa_jednostki.pack(side=LEFT, padx=2)
+Label(frame_form_jednostka, text='Lokalizacja:').pack(side=LEFT)
+entry_lokalizacja_jednostki = Entry(frame_form_jednostka, width=12)
+entry_lokalizacja_jednostki.pack(side=LEFT, padx=2)
+button_dodaj_jednostke = Button(frame_form_jednostka, text='Dodaj', command=lambda: dodaj_jednostke())
+button_dodaj_jednostke.pack(side=LEFT, padx=2)
+button_usun_jednostke = Button(frame_form_jednostka, text='Usuń', command=lambda: usun_jednostke())
+button_usun_jednostke.pack(side=LEFT, padx=2)
+button_edytuj_jednostke = Button(frame_form_jednostka, text='Edytuj', command=lambda: edytuj_jednostke())
+button_edytuj_jednostke.pack(side=LEFT, padx=2)
+button_szczegoly_jednostki = Button(frame_form_jednostka, text='Pokaż szczegóły', command=lambda: pokaz_szczegoly_jednostki())
+button_szczegoly_jednostki.pack(side=LEFT, padx=2)
 
-listbox_lista_obiektow = Listbox(ramka_lista_obiektow, width=50, height=10)
-listbox_lista_obiektow.grid(row=1, column=0, columnspan=3)
+listbox_jednostki = Listbox(frame_jednostki)
+listbox_jednostki.pack(fill=BOTH, expand=True, padx=5, pady=5)
 
-button_pokaz_szczegoly = Button(ramka_lista_obiektow, text='Pokaż szczegóły', command=show_user_details)
-button_pokaz_szczegoly.grid(row=2, column=0)
-button_usun_obiekt = Button(ramka_lista_obiektow, text='Usuń', command=remove_user)
-button_usun_obiekt.grid(row=2, column=1)
-button_edytuj_obiekt = Button(ramka_lista_obiektow, text='Edytuj', command=edit_user)
-button_edytuj_obiekt.grid(row=2, column=2)
+mapa_jednostki = tkintermapview.TkinterMapView(frame_jednostki, width=600, height=300, corner_radius=0)
+mapa_jednostki.pack(fill=BOTH, expand=True, padx=5, pady=5)
+mapa_jednostki.set_position(52.23, 21.00)
+mapa_jednostki.set_zoom(6)
 
-# ramka_formularz
-label_formularz = Label(ramka_formularz, text='Formularz:')
-label_formularz.grid(row=0, column=0)
+# --- Zakładka Pracownicy ---
+frame_pracownicy = Frame(notebook)
+notebook.add(frame_pracownicy, text='Pracownicy')
 
-label_imie = Label(ramka_formularz, text='Imie:')
-label_imie.grid(row=1, column=0, sticky=W)
+frame_form_pracownik = Frame(frame_pracownicy)
+frame_form_pracownik.pack(fill=X, padx=5, pady=5)
+Label(frame_form_pracownik, text='Imię:').pack(side=LEFT)
+entry_imie_pracownika = Entry(frame_form_pracownik, width=10)
+entry_imie_pracownika.pack(side=LEFT, padx=2)
+Label(frame_form_pracownik, text='Nazwisko:').pack(side=LEFT)
+entry_nazwisko_pracownika = Entry(frame_form_pracownik, width=10)
+entry_nazwisko_pracownika.pack(side=LEFT, padx=2)
+Label(frame_form_pracownik, text='Lokalizacja:').pack(side=LEFT)
+entry_lokalizacja_pracownika = Entry(frame_form_pracownik, width=12)
+entry_lokalizacja_pracownika.pack(side=LEFT, padx=2)
+Label(frame_form_pracownik, text='Jednostka:').pack(side=LEFT)
+combobox_jednostka_pracownika = ttk.Combobox(frame_form_pracownik, width=15, state='readonly')
+combobox_jednostka_pracownika.pack(side=LEFT, padx=2)
+button_dodaj_pracownika = Button(frame_form_pracownik, text='Dodaj', command=lambda: dodaj_pracownika())
+button_dodaj_pracownika.pack(side=LEFT, padx=2)
+button_usun_pracownika = Button(frame_form_pracownik, text='Usuń', command=lambda: usun_pracownika())
+button_usun_pracownika.pack(side=LEFT, padx=2)
+button_edytuj_pracownika = Button(frame_form_pracownik, text='Edytuj', command=lambda: edytuj_pracownika())
+button_edytuj_pracownika.pack(side=LEFT, padx=2)
+button_szczegoly_pracownika = Button(frame_form_pracownik, text='Pokaż szczegóły', command=lambda: pokaz_szczegoly_pracownika())
+button_szczegoly_pracownika.pack(side=LEFT, padx=2)
 
-label_nazwisko = Label(ramka_formularz, text='Nazwisko:')
-label_nazwisko.grid(row=2, column=0, sticky=W)
+listbox_pracownicy = Listbox(frame_pracownicy)
+listbox_pracownicy.pack(fill=BOTH, expand=True, padx=5, pady=5)
 
-label_miejscowosc = Label(ramka_formularz, text='Miejscowość:')
-label_miejscowosc.grid(row=3, column=0, sticky=W)
+mapa_pracownicy = tkintermapview.TkinterMapView(frame_pracownicy, width=600, height=300, corner_radius=0)
+mapa_pracownicy.pack(fill=BOTH, expand=True, padx=5, pady=5)
+mapa_pracownicy.set_position(52.23, 21.00)
+mapa_pracownicy.set_zoom(6)
 
-label_posts = Label(ramka_formularz, text='Posts:')
-label_posts.grid(row=4, column=0, sticky=W)
+# --- Zakładka Pożary ---
+frame_pozary = Frame(notebook)
+notebook.add(frame_pozary, text='Pożary')
 
-entry_imie = Entry(ramka_formularz)
-entry_imie.grid(row=1, column=1)
+frame_form_pozar = Frame(frame_pozary)
+frame_form_pozar.pack(fill=X, padx=5, pady=5)
+Label(frame_form_pozar, text='Lokalizacja:').pack(side=LEFT)
+entry_lokalizacja_pozaru = Entry(frame_form_pozar, width=15)
+entry_lokalizacja_pozaru.pack(side=LEFT, padx=2)
+Label(frame_form_pozar, text='Opis:').pack(side=LEFT)
+entry_opis_pozaru = Entry(frame_form_pozar, width=15)
+entry_opis_pozaru.pack(side=LEFT, padx=2)
+Label(frame_form_pozar, text='Jednostka:').pack(side=LEFT)
+combobox_jednostka_pozaru = ttk.Combobox(frame_form_pozar, width=15, state='readonly')
+combobox_jednostka_pozaru.pack(side=LEFT, padx=2)
+button_dodaj_pozar = Button(frame_form_pozar, text='Dodaj', command=lambda: dodaj_pozar())
+button_dodaj_pozar.pack(side=LEFT, padx=2)
+button_usun_pozar = Button(frame_form_pozar, text='Usuń', command=lambda: usun_pozar())
+button_usun_pozar.pack(side=LEFT, padx=2)
+button_edytuj_pozar = Button(frame_form_pozar, text='Edytuj', command=lambda: edytuj_pozar())
+button_edytuj_pozar.pack(side=LEFT, padx=2)
+button_szczegoly_pozaru = Button(frame_form_pozar, text='Pokaż szczegóły', command=lambda: pokaz_szczegoly_pozaru())
+button_szczegoly_pozaru.pack(side=LEFT, padx=2)
 
-entry_nazwisko = Entry(ramka_formularz)
-entry_nazwisko.grid(row=2, column=1)
+listbox_pozary = Listbox(frame_pozary)
+listbox_pozary.pack(fill=BOTH, expand=True, padx=5, pady=5)
 
-entry_miejscowosc = Entry(ramka_formularz)
-entry_miejscowosc.grid(row=3, column=1)
+mapa_pozary = tkintermapview.TkinterMapView(frame_pozary, width=600, height=300, corner_radius=0)
+mapa_pozary.pack(fill=BOTH, expand=True, padx=5, pady=5)
+mapa_pozary.set_position(52.23, 21.00)
+mapa_pozary.set_zoom(6)
 
-entry_posts = Entry(ramka_formularz)
-entry_posts.grid(row=4, column=1)
+# --- Funkcja do odświeżania comboboxów jednostek ---
+def odswiez_comboboxy_jednostek():
+    jednostki = [j.nazwa for j in jednostki_strazy]
+    combobox_jednostka_pracownika['values'] = jednostki
+    combobox_jednostka_pozaru['values'] = jednostki
 
-buttom_dodaj_obiekt = Button(ramka_formularz, text='Dodaj', command=add_user)
-buttom_dodaj_obiekt.grid(row=5, column=0, columnspan=2)
+# --- Funkcje obsługi jednostek ---
+def odswiez_liste_jednostek():
+    listbox_jednostki.delete(0, END)
+    for idx, j in enumerate(jednostki_strazy):
+        listbox_jednostki.insert(idx, f"{j.nazwa} ({j.lokalizacja})")
+    odswiez_comboboxy_jednostek()
+    # Odśwież markery na mapie jednostek
+    mapa_jednostki.delete_all_marker()
+    for j in jednostki_strazy:
+        j.marker = mapa_jednostki.set_marker(j.coordinates[0], j.coordinates[1], text=j.nazwa)
 
-# ramka_szczegoly_obiektow
-label_pokaz_szczegoly = Label(ramka_szczegoly_obiektow, text='Szczegóły użytkownika:')
-label_pokaz_szczegoly.grid(row=0, column=0)
+def dodaj_jednostke():
+    nazwa = entry_nazwa_jednostki.get()
+    lokalizacja = entry_lokalizacja_jednostki.get()
+    if not nazwa or not lokalizacja:
+        return
+    jednostka = JednostkaStrazy(nazwa, lokalizacja)
+    jednostka.marker = mapa_jednostki.set_marker(jednostka.coordinates[0], jednostka.coordinates[1], text=nazwa)
+    jednostki_strazy.append(jednostka)
+    odswiez_liste_jednostek()
+    entry_nazwa_jednostki.delete(0, END)
+    entry_lokalizacja_jednostki.delete(0, END)
 
-label_szczegoly_obiektu_name = Label(ramka_szczegoly_obiektow, text='Imię:')
-label_szczegoly_obiektu_name.grid(row=1, column=0)
+def usun_jednostke():
+    idx = listbox_jednostki.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    jednostka = jednostki_strazy[idx]
+    if jednostka.marker:
+        jednostka.marker.delete()
+    jednostki_strazy.pop(idx)
+    odswiez_liste_jednostek()
 
-label_szczegoly_obiektu_name_wartosc = Label(ramka_szczegoly_obiektow, text='....')
-label_szczegoly_obiektu_name_wartosc.grid(row=1, column=1)
+def edytuj_jednostke():
+    idx = listbox_jednostki.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    jednostka = jednostki_strazy[idx]
+    entry_nazwa_jednostki.delete(0, END)
+    entry_lokalizacja_jednostki.delete(0, END)
+    entry_nazwa_jednostki.insert(0, jednostka.nazwa)
+    entry_lokalizacja_jednostki.insert(0, jednostka.lokalizacja)
+    button_dodaj_jednostke.config(text='Zapisz', command=lambda: zapisz_edycje_jednostki(idx))
 
-label_szczegoly_obiektu_surname = Label(ramka_szczegoly_obiektow, text='Nazwisko:')
-label_szczegoly_obiektu_surname.grid(row=1, column=2)
+def zapisz_edycje_jednostki(idx):
+    nazwa = entry_nazwa_jednostki.get()
+    lokalizacja = entry_lokalizacja_jednostki.get()
+    jednostka = jednostki_strazy[idx]
+    jednostka.nazwa = nazwa
+    jednostka.lokalizacja = lokalizacja
+    jednostka.coordinates = get_coordinates(lokalizacja)
+    if jednostka.marker:
+        jednostka.marker.delete()
+    jednostka.marker = mapa_jednostki.set_marker(jednostka.coordinates[0], jednostka.coordinates[1], text=nazwa)
+    odswiez_liste_jednostek()
+    entry_nazwa_jednostki.delete(0, END)
+    entry_lokalizacja_jednostki.delete(0, END)
+    button_dodaj_jednostke.config(text='Dodaj', command=lambda: dodaj_jednostke())
 
-label_szczegoly_obiektu_surname_wartosc = Label(ramka_szczegoly_obiektow, text='....')
-label_szczegoly_obiektu_surname_wartosc.grid(row=1, column=3)
+# --- Funkcje obsługi pracowników ---
+def odswiez_liste_pracownikow():
+    listbox_pracownicy.delete(0, END)
+    for idx, p in enumerate(pracownicy):
+        jednostka = p.jednostka.nazwa if p.jednostka else '-'
+        listbox_pracownicy.insert(idx, f"{p.imie} {p.nazwisko} ({p.lokalizacja}) [{jednostka}]")
+    # Odśwież markery na mapie pracowników
+    mapa_pracownicy.delete_all_marker()
+    for p in pracownicy:
+        p.marker = mapa_pracownicy.set_marker(p.coordinates[0], p.coordinates[1], text=f"{p.imie} {p.nazwisko}")
 
-label_szczegoly_obiektu_miejscowosc = Label(ramka_szczegoly_obiektow, text='Miejscowość:')
-label_szczegoly_obiektu_miejscowosc.grid(row=1, column=4)
+def dodaj_pracownika():
+    imie = entry_imie_pracownika.get()
+    nazwisko = entry_nazwisko_pracownika.get()
+    lokalizacja = entry_lokalizacja_pracownika.get()
+    jednostka_nazwa = combobox_jednostka_pracownika.get()
+    jednostka = next((j for j in jednostki_strazy if j.nazwa == jednostka_nazwa), None) if jednostka_nazwa else None
+    pracownik = Pracownik(imie, nazwisko, lokalizacja, jednostka)
+    pracownik.marker = mapa_pracownicy.set_marker(pracownik.coordinates[0], pracownik.coordinates[1], text=f"{imie} {nazwisko}")
+    pracownicy.append(pracownik)
+    if jednostka:
+        jednostka.pracownicy.append(pracownik)
+    odswiez_liste_pracownikow()
+    entry_imie_pracownika.delete(0, END)
+    entry_nazwisko_pracownika.delete(0, END)
+    entry_lokalizacja_pracownika.delete(0, END)
+    combobox_jednostka_pracownika.set('')
 
-label_szczegoly_obiektu_miejscowosc_wartosc = Label(ramka_szczegoly_obiektow, text='....')
-label_szczegoly_obiektu_miejscowosc_wartosc.grid(row=1, column=5)
+def usun_pracownika():
+    idx = listbox_pracownicy.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    pracownik = pracownicy[idx]
+    if pracownik.marker:
+        pracownik.marker.delete()
+    if pracownik.jednostka and pracownik in pracownik.jednostka.pracownicy:
+        pracownik.jednostka.pracownicy.remove(pracownik)
+    pracownicy.pop(idx)
+    odswiez_liste_pracownikow()
 
-label_szczegoly_obiektu_posts = Label(ramka_szczegoly_obiektow, text='Posts:')
-label_szczegoly_obiektu_posts.grid(row=1, column=6)
+def edytuj_pracownika():
+    idx = listbox_pracownicy.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    pracownik = pracownicy[idx]
+    entry_imie_pracownika.delete(0, END)
+    entry_nazwisko_pracownika.delete(0, END)
+    entry_lokalizacja_pracownika.delete(0, END)
+    combobox_jednostka_pracownika.set('')
+    entry_imie_pracownika.insert(0, pracownik.imie)
+    entry_nazwisko_pracownika.insert(0, pracownik.nazwisko)
+    entry_lokalizacja_pracownika.insert(0, pracownik.lokalizacja)
+    if pracownik.jednostka:
+        combobox_jednostka_pracownika.set(pracownik.jednostka.nazwa)
+    button_dodaj_pracownika.config(text='Zapisz', command=lambda: zapisz_edycje_pracownika(idx))
 
-label_szczegoly_obiektu_posts_wartosc = Label(ramka_szczegoly_obiektow, text='....')
-label_szczegoly_obiektu_posts_wartosc.grid(row=1, column=7)
+def zapisz_edycje_pracownika(idx):
+    imie = entry_imie_pracownika.get()
+    nazwisko = entry_nazwisko_pracownika.get()
+    lokalizacja = entry_lokalizacja_pracownika.get()
+    jednostka_nazwa = combobox_jednostka_pracownika.get()
+    jednostka = next((j for j in jednostki_strazy if j.nazwa == jednostka_nazwa), None) if jednostka_nazwa else None
+    pracownik = pracownicy[idx]
+    if pracownik.jednostka and pracownik in pracownik.jednostka.pracownicy:
+        pracownik.jednostka.pracownicy.remove(pracownik)
+    pracownik.imie = imie
+    pracownik.nazwisko = nazwisko
+    pracownik.lokalizacja = lokalizacja
+    pracownik.jednostka = jednostka
+    pracownik.coordinates = get_coordinates(lokalizacja)
+    if pracownik.marker:
+        pracownik.marker.delete()
+    pracownik.marker = mapa_pracownicy.set_marker(pracownik.coordinates[0], pracownik.coordinates[1], text=f"{imie} {nazwisko}")
+    if jednostka:
+        jednostka.pracownicy.append(pracownik)
+    odswiez_liste_pracownikow()
+    entry_imie_pracownika.delete(0, END)
+    entry_nazwisko_pracownika.delete(0, END)
+    entry_lokalizacja_pracownika.delete(0, END)
+    combobox_jednostka_pracownika.set('')
+    button_dodaj_pracownika.config(text='Dodaj', command=lambda: dodaj_pracownika())
 
-# ramka_mapa
-map_widget = tkintermapview.TkinterMapView(ramka_mapa, width=1200, height=400, corner_radius=0)
-map_widget.grid(row=0, column=0, columnspan=2)
-map_widget.set_position(52.23, 21.00)
-map_widget.set_zoom(6)
+# --- Funkcje obsługi pożarów ---
+def odswiez_liste_pozarow():
+    listbox_pozary.delete(0, END)
+    for idx, p in enumerate(pozary):
+        jednostka = p.jednostka.nazwa if p.jednostka else '-'
+        listbox_pozary.insert(idx, f"{p.lokalizacja} - {p.opis} [{jednostka}]")
+    # Odśwież markery na mapie pożarów
+    mapa_pozary.delete_all_marker()
+    for p in pozary:
+        p.marker = mapa_pozary.set_marker(p.coordinates[0], p.coordinates[1], text=f"Pożar: {p.opis}")
+
+def dodaj_pozar():
+    lokalizacja = entry_lokalizacja_pozaru.get()
+    opis = entry_opis_pozaru.get()
+    jednostka_nazwa = combobox_jednostka_pozaru.get()
+    jednostka = next((j for j in jednostki_strazy if j.nazwa == jednostka_nazwa), None) if jednostka_nazwa else None
+    pozar = Pozar(lokalizacja, opis, jednostka)
+    pozar.marker = mapa_pozary.set_marker(pozar.coordinates[0], pozar.coordinates[1], text=f"Pożar: {opis}")
+    pozary.append(pozar)
+    if jednostka:
+        jednostka.pozary.append(pozar)
+    odswiez_liste_pozarow()
+    entry_lokalizacja_pozaru.delete(0, END)
+    entry_opis_pozaru.delete(0, END)
+    combobox_jednostka_pozaru.set('')
+
+def usun_pozar():
+    idx = listbox_pozary.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    pozar = pozary[idx]
+    if pozar.marker:
+        pozar.marker.delete()
+    if pozar.jednostka and pozar in pozar.jednostka.pozary:
+        pozar.jednostka.pozary.remove(pozar)
+    pozary.pop(idx)
+    odswiez_liste_pozarow()
+
+def edytuj_pozar():
+    idx = listbox_pozary.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    pozar = pozary[idx]
+    entry_lokalizacja_pozaru.delete(0, END)
+    entry_opis_pozaru.delete(0, END)
+    combobox_jednostka_pozaru.set('')
+    entry_lokalizacja_pozaru.insert(0, pozar.lokalizacja)
+    entry_opis_pozaru.insert(0, pozar.opis)
+    if pozar.jednostka:
+        combobox_jednostka_pozaru.set(pozar.jednostka.nazwa)
+    button_dodaj_pozar.config(text='Zapisz', command=lambda: zapisz_edycje_pozaru(idx))
+
+def zapisz_edycje_pozaru(idx):
+    lokalizacja = entry_lokalizacja_pozaru.get()
+    opis = entry_opis_pozaru.get()
+    jednostka_nazwa = combobox_jednostka_pozaru.get()
+    jednostka = next((j for j in jednostki_strazy if j.nazwa == jednostka_nazwa), None) if jednostka_nazwa else None
+    pozar = pozary[idx]
+    if pozar.jednostka and pozar in pozar.jednostka.pozary:
+        pozar.jednostka.pozary.remove(pozar)
+    pozar.lokalizacja = lokalizacja
+    pozar.opis = opis
+    pozar.jednostka = jednostka
+    pozar.coordinates = get_coordinates(lokalizacja)
+    if pozar.marker:
+        pozar.marker.delete()
+    pozar.marker = mapa_pozary.set_marker(pozar.coordinates[0], pozar.coordinates[1], text=f"Pożar: {opis}")
+    if jednostka:
+        jednostka.pozary.append(pozar)
+    odswiez_liste_pozarow()
+    entry_lokalizacja_pozaru.delete(0, END)
+    entry_opis_pozaru.delete(0, END)
+    combobox_jednostka_pozaru.set('')
+    button_dodaj_pozar.config(text='Dodaj', command=lambda: dodaj_pozar())
+
+# --- Funkcje szczegółów ---
+def pokaz_szczegoly_jednostki():
+    idx = listbox_jednostki.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    jednostka = jednostki_strazy[idx]
+    if jednostka.marker:
+        mapa_jednostki.set_zoom(15)
+        mapa_jednostki.set_position(jednostka.coordinates[0], jednostka.coordinates[1])
+
+def pokaz_szczegoly_pracownika():
+    idx = listbox_pracownicy.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    pracownik = pracownicy[idx]
+    if pracownik.marker:
+        mapa_pracownicy.set_zoom(15)
+        mapa_pracownicy.set_position(pracownik.coordinates[0], pracownik.coordinates[1])
+
+def pokaz_szczegoly_pozaru():
+    idx = listbox_pozary.curselection()
+    if not idx:
+        return
+    idx = idx[0]
+    pozar = pozary[idx]
+    if pozar.marker:
+        mapa_pozary.set_zoom(15)
+        mapa_pozary.set_position(pozar.coordinates[0], pozar.coordinates[1])
+
+# --- Automatyczne odświeżenie listy przy starcie ---
+odswiez_liste_jednostek()
+odswiez_liste_pracownikow()
+odswiez_liste_pozarow()
+odswiez_comboboxy_jednostek()
 
 root.mainloop()
+# --- KONIEC SZKIELETU ---
